@@ -7,3 +7,24 @@ downloads/
 dist/
 build/
 AudioBook/*
+
+# IDE 文件
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS 系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows 系统文件
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# 项目特定
+cache/

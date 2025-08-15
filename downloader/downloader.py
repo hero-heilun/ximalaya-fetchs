@@ -74,7 +74,8 @@ class M4ADownloader:
                     downloaded += len(chunk)
                     if total > 0:
                         percent = downloaded * 100 // total
-                        log_func(f"\r下载进度: {percent}% ({downloaded // 1024}KB/{total // 1024}KB)", level='info')
+                        if percent % 10 == 0 or percent == 100:  # 每10%显示一次进度
+                            log_func(f"下载进度: {percent}% ({downloaded // 1024}KB/{total // 1024}KB)", level='info')
         
         # 验证文件完整性
         file_size = os.path.getsize(output_file)
