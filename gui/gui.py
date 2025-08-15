@@ -17,8 +17,16 @@ class XimalayaGUI:
         self.default_download_dir = default_download_dir
         self.root.title('喜马拉雅批量下载工具 - 增强版')
         self.root.geometry('1200x900')  # 调整窗口大小
+        
+        # 确保窗口在前台显示并获得焦点
+        self.root.lift()
+        self.root.focus_force()
+        
         self._init_widgets()
         self.setup_log_tags()
+        
+        # 确保初始化完成后窗口仍在前台
+        self.root.after(100, lambda: self.root.lift())
 
     def _init_widgets(self):
         # 创建主框架
@@ -66,7 +74,8 @@ class XimalayaGUI:
         tk.Button(btn_frame, text='获取专辑信息', width=12, command=self.run_album_info).pack(side='left', padx=(0, 5))
         tk.Button(btn_frame, text='解析曲目', width=12, command=self.run_parse_tracks).pack(side='left', padx=(0, 5))
         tk.Button(btn_frame, text='下载专辑', width=12, command=self.run_album_download).pack(side='left', padx=(0, 5))
-        tk.Button(btn_frame, text='下载单曲', width=12, command=self.run_track_download).pack(side='left')
+        tk.Button(btn_frame, text='下载单曲', width=12, command=self.run_track_download).pack(side='left', padx=(0, 5))
+        tk.Button(btn_frame, text='登录管理', width=12, command=self.show_login_dialog).pack(side='left')
         # 专辑信息展示区
         info_frame = tk.LabelFrame(left_panel, text='专辑信息', padx=10, pady=10)
         info_frame.pack(fill='x', pady=(0, 10))
@@ -845,6 +854,34 @@ class XimalayaGUI:
                 self.log_error(f'恢复下载异常: {e}')
                 
         self.run_in_thread(task)
+    
+    def show_login_dialog(self):
+        """显示登录管理对话框"""
+        try:
+            from gui.login_dialog import show_login_dialog, check_cookie_exists
+            
+            # 确保窗口在前台
+            self.root.lift()
+            self.root.focus_force()
+            
+            # 检查当前cookie状态
+            if check_cookie_exists():
+                if messagebox.askyesno("登录管理", "检测到已有Cookie配置。\n\n是否重新登录？"):
+                    result = show_login_dialog(self.root, show_first_time_info=False)
+                    if result:
+                        messagebox.showinfo("成功", f"重新登录成功！\n用户: {result['username']}")
+                    else:
+                        messagebox.showinfo("提示", "登录操作已取消")
+            else:
+                # 没有cookie，显示登录对话框（不显示首次启动信息）
+                result = show_login_dialog(self.root, show_first_time_info=False)
+                if result:
+                    messagebox.showinfo("成功", f"登录成功！\n用户: {result['username']}")
+                else:
+                    messagebox.showinfo("提示", "登录操作已取消")
+                    
+        except Exception as e:
+            messagebox.showerror("错误", f"登录管理出错: {str(e)}")
 
 if __name__ == '__main__':
     root = tk.Tk()
