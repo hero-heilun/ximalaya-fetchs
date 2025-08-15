@@ -336,6 +336,8 @@ python xm-demo.py
 DkWRgo5jpmM98zaEgdPQLHL9QrGeCYUphQVmSGwr7pJd
 ```
 
+![打赏二维码](image/wallet.PNG)
+
 感谢您的支持！每一份打赏都是对我们持续改进和维护这个项目的巨大鼓励。
 
 ### ⭐ 其他支持方式
