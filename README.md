@@ -1,5 +1,12 @@
 # 喜马拉雅音频批量下载工具文档
 
+[![GitHub stars](https://img.shields.io/github/stars/hero-heilun/ximalaya-fetchs?style=social)](https://github.com/hero-heilun/ximalaya-fetchs/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/hero-heilun/ximalaya-fetchs?style=social)](https://github.com/hero-heilun/ximalaya-fetchs/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/hero-heilun/ximalaya-fetchs)](https://github.com/hero-heilun/ximalaya-fetchs/issues)
+[![GitHub license](https://img.shields.io/github/license/hero-heilun/ximalaya-fetchs)](https://github.com/hero-heilun/ximalaya-fetchs/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-donate-yellow.svg)](https://www.buymeacoffee.com/heilunhero)
+
 ## 1. 项目简介
 
 本项目为喜马拉雅音频平台的批量下载与管理工具，基于 Python 实现，支持专辑音频的批量获取、解密与下载，适合个人备份、学习与研究用途。
@@ -329,7 +336,13 @@ python xm-demo.py
 
 ### 💰 打赏支持
 
-您可以通过以下方式支持项目：
+如果这个项目对您有帮助，请考虑给开发者买杯咖啡 ☕
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/heilunhero)
+[![Ko-Fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/heilunhero)
+[![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.me/heilunhero)
+
+您也可以通过以下方式支持项目：
 
 **SOL链钱包地址：**
 ```
