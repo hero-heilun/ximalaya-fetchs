@@ -243,6 +243,8 @@ class XimalayaGUI:
         def task():
             album = fetch_album(int(album_id))
             if album:
+                # 更新专辑对象
+                self.album = album
                 self.album_title_var.set(album.albumTitle)
                 intro = re.sub('<[^<]+?>', '', album.richIntro or '')
                 self.intro_text.config(state='normal')
@@ -261,6 +263,8 @@ class XimalayaGUI:
                 self.show_cover_image(cover_url)
                 self.log_info(f'获取专辑成功: {album.albumTitle}')
             else:
+                # 清除专辑对象
+                self.album = None
                 self.album_title_var.set('')
                 self.intro_text.config(state='normal')
                 self.intro_text.delete('1.0', tk.END)
@@ -340,13 +344,50 @@ class XimalayaGUI:
         
         def task():
             try:
-                # 获取专辑信息
-                if not hasattr(self, 'album') or not self.album:
-                    album = fetch_album(int(album_id))
-                    if album:
-                        self.album = album
+                # 获取专辑信息 - 总是重新获取以确保album信息是最新的
+                album = fetch_album(int(album_id))
+                if album:
+                    self.album = album
+                    self.log_info(f'已更新专辑信息: {album.albumTitle}')
+                else:
+                    self.log_error('获取专辑信息失败')
+                    return
+                
+                # 🚀 智能缓存策略：检查URL缓存覆盖率
+                self.log_info('🔍 检查专辑缓存，智能优化加载策略...')
+                cached_url_map = {}
+                try:
+                    from utils.sqlite_cache import get_sqlite_cache
+                    cache = get_sqlite_cache()
+                    cached_tracks = cache.get_album_cached_tracks(int(album_id))
+                    
+                    if cached_tracks and len(cached_tracks) > 0:
+                        # 构建URL缓存映射
+                        for cached_track in cached_tracks:
+                            if cached_track.decrypted_url:  # 只考虑有URL的缓存
+                                cached_url_map[cached_track.track_id] = {
+                                    'crypted_url': cached_track.crypted_url,
+                                    'decrypted_url': cached_track.decrypted_url,
+                                    'title': cached_track.title,
+                                    'duration': cached_track.duration
+                                }
                         
-                # 分页获取所有曲目
+                        self.log_info(f'📊 发现 {len(cached_url_map)} 个曲目的URL缓存')
+                        
+                        # 如果有大量URL缓存，说明之前解析过，使用快速模式
+                        if len(cached_url_map) >= 10:  # 至少10个缓存才考虑快速模式
+                            self.log_info(f'🚀 URL缓存充足 ({len(cached_url_map)} 个)，启用混合快速加载模式')
+                        else:
+                            self.log_info(f'📡 URL缓存较少 ({len(cached_url_map)} 个)，使用标准网络模式')
+                    else:
+                        self.log_info('❌ 无URL缓存，使用标准网络模式')
+                        
+                except Exception as e:
+                    self.log_warning(f'缓存检查失败: {e}，使用标准网络模式')
+                    cached_url_map = {}
+                
+                # 📡 缓存未命中，使用原有的网络+缓存混合模式
+                self.log_info('📡 开始网络获取曲目列表（启用缓存优化）')
                 page = 1
                 page_size = 20
                 all_tracks = []
@@ -370,31 +411,29 @@ class XimalayaGUI:
                             
                         all_tracks.extend(tracks)
                         
-                        # 批量查询缓存状态（性能优化）
-                        cached_tracks = {}
-                        try:
-                            from utils.sqlite_cache import get_sqlite_cache
-                            cache = get_sqlite_cache()
-                            track_ids = [track.trackId for track in tracks]
-                            cached_tracks = cache.get_tracks_cache_status(track_ids, int(album_id))
-                        except Exception:
-                            pass  # 静默处理缓存查询错误
+                        # 🚀 使用预建的缓存映射（避免重复数据库查询）
+                        cache_hits = 0
                         
                         # 实时更新界面显示
                         for i, track in enumerate(tracks):
                             idx = (page - 1) * page_size + i + 1
                             duration_str = f"{track.duration // 60}:{track.duration % 60:02d}" if track.duration else "未知"
                             
-                            # 检查缓存状态
+                            # 🚀 快速检查预建的缓存映射
                             url_status = "待解析"
-                            if track.trackId in cached_tracks:
-                                cache_data = cached_tracks[track.trackId]
+                            if track.trackId in cached_url_map:
+                                cache_data = cached_url_map[track.trackId]
                                 track.cryptedUrl = cache_data['crypted_url']
                                 track.url = cache_data['decrypted_url']
                                 url_status = "✅ 已解析"
+                                cache_hits += 1
                             
                             # 立即更新到界面
                             schedule_ui_update(track, idx, duration_str, url_status)
+                        
+                        # 显示缓存命中统计
+                        if cache_hits > 0:
+                            self.log_info(f'🚀 本页缓存命中: {cache_hits}/{len(tracks)} 个曲目')
                         
                         # 更新进度信息
                         if hasattr(tracks[0], 'totalCount') and tracks[0].totalCount:
@@ -425,15 +464,31 @@ class XimalayaGUI:
                         break
                 
                 self.parsed_tracks = all_tracks
-                self.log_info(f'解析完成，共获取到 {len(all_tracks)} 个曲目')
+                
+                # 🚀 计算缓存统计信息
+                total_cached = sum(1 for track in all_tracks if track.url and track.url.strip())
+                cache_percentage = (total_cached / len(all_tracks) * 100) if all_tracks else 0
+                
+                self.log_info(f'✅ 解析完成！共获取到 {len(all_tracks)} 个曲目')
+                self.log_info(f'🚀 缓存命中: {total_cached}/{len(all_tracks)} 个曲目 ({cache_percentage:.1f}%)')
+                
+                if cache_percentage >= 80:
+                    self.log_info('🎉 缓存覆盖率高，大部分曲目已可直接下载！')
+                elif cache_percentage >= 50:
+                    self.log_info('⚡ 部分曲目已解析，可优先下载这些曲目')
+                else:
+                    self.log_info('📡 建议先解析更多曲目URL以提升后续加载速度')
                 
                 # SQLite缓存自动保存，无需手动保存
                 self.log_info('[缓存] SQLite缓存已自动保存')
                 
                 # 显示最终完成状态
+                status_msg = f"解析完成! 共{len(all_tracks)}首曲目，{total_cached}个已缓存"
+                if cache_percentage < 100:
+                    status_msg += "，请选择曲目并解析URL"
+                    
                 self.root.after(0, lambda: self.set_progress(
-                    len(all_tracks), len(all_tracks), 
-                    f"解析完成! 共{len(all_tracks)}首曲目，请选择曲目并解析URL"
+                    len(all_tracks), len(all_tracks), status_msg
                 ))
                 
             except Exception as e:
@@ -573,6 +628,201 @@ class XimalayaGUI:
                 
         self.run_in_thread(task)
     
+    def save_album_info_for_selected(self, save_dir, album_id, selected_tracks_with_idx):
+        """为下载选中曲目生成专辑信息文件"""
+        import json
+        import requests
+        import re
+        import os
+        from html import unescape
+        
+        try:
+            # 获取专辑信息
+            if hasattr(self, 'album') and self.album:
+                album = self.album
+            else:
+                from fetcher.album_fetcher import fetch_album
+                album = fetch_album(int(album_id))
+            
+            if not album:
+                self.log_warning('无法获取专辑信息，跳过专辑信息文件生成')
+                return
+            
+            # 检查是否已存在album_info.json文件
+            info_path = os.path.join(save_dir, 'album_info.json')
+            existing_album_info = None
+            existing_tracks = []
+            
+            if os.path.exists(info_path):
+                try:
+                    with open(info_path, 'r', encoding='utf-8') as f:
+                        existing_album_info = json.load(f)
+                        existing_tracks = existing_album_info.get('tracks', [])
+                    self.log_info(f'发现现有 album_info.json，已有 {len(existing_tracks)} 个曲目记录')
+                except Exception as e:
+                    self.log_warning(f'读取现有 album_info.json 失败: {e}，将创建新文件')
+                    existing_album_info = None
+                    existing_tracks = []
+            
+            # 获取已有曲目的trackId集合，避免重复
+            existing_track_ids = {track.get('trackId') for track in existing_tracks if track.get('trackId')}
+            
+            # 准备选中曲目的详细信息，过滤已存在的
+            new_tracks_info = []
+            skipped_tracks = []
+            
+            for idx, track in selected_tracks_with_idx:
+                if track.trackId in existing_track_ids:
+                    # 找到已存在的曲目记录并更新信息
+                    for existing_track in existing_tracks:
+                        if existing_track.get('trackId') == track.trackId:
+                            # 更新现有记录的URL信息（可能之前没有解析）
+                            existing_track.update({
+                                'url': track.url,
+                                'updateTime': track.updateTime or existing_track.get('updateTime', '')
+                            })
+                            skipped_tracks.append(track.title)
+                            break
+                else:
+                    # 新曲目，添加到列表
+                    track_info = {
+                        'index': idx,
+                        'trackId': track.trackId,
+                        'title': track.title,
+                        'duration': track.duration,
+                        'createTime': track.createTime,
+                        'updateTime': track.updateTime,
+                        'url': track.url,
+                        'cover': track.cover
+                    }
+                    new_tracks_info.append(track_info)
+            
+            # 记录跳过和新增的曲目
+            if skipped_tracks:
+                self.log_info(f'发现 {len(skipped_tracks)} 个曲目已存在，已更新其信息: {", ".join(skipped_tracks[:3])}{"..." if len(skipped_tracks) > 3 else ""}')
+            
+            if new_tracks_info:
+                self.log_info(f'准备追加 {len(new_tracks_info)} 个新曲目到专辑信息')
+            
+            # 合并曲目列表
+            all_tracks = existing_tracks + new_tracks_info
+            
+            # 构建或更新专辑信息数据
+            if existing_album_info:
+                # 更新现有信息
+                album_info = existing_album_info
+                album_info['tracks'] = all_tracks
+                # 更新下载信息
+                download_info = album_info.get('downloadInfo', {})
+                download_info.update({
+                    'downloadType': 'selected_tracks',
+                    'totalSelected': len(all_tracks),
+                    'lastDownloadTime': __import__('datetime').datetime.now().isoformat(),
+                    'newTracksAdded': len(new_tracks_info)
+                })
+                album_info['downloadInfo'] = download_info
+            else:
+                # 创建新的专辑信息
+                album_info = {
+                    'albumId': getattr(album, 'albumId', int(album_id)),
+                    'albumTitle': getattr(album, 'albumTitle', f'Album_{album_id}'),
+                    'cover': getattr(album, 'cover', ''),
+                    'createDate': getattr(album, 'createDate', ''),
+                    'updateDate': getattr(album, 'updateDate', ''),
+                    'richIntro': getattr(album, 'richIntro', ''),
+                    'tracks': all_tracks,
+                    'downloadInfo': {
+                        'downloadType': 'selected_tracks',
+                        'totalSelected': len(all_tracks),
+                        'downloadTime': __import__('datetime').datetime.now().isoformat(),
+                        'newTracksAdded': len(new_tracks_info)
+                    }
+                }
+            
+            # 保存 album_info.json
+            with open(info_path, 'w', encoding='utf-8') as f:
+                json.dump(album_info, f, ensure_ascii=False, indent=2)
+            
+            if existing_album_info:
+                self.log_info(f'✅ 已更新 album_info.json (新增{len(new_tracks_info)}个曲目，总计{len(all_tracks)}个曲目)')
+            else:
+                self.log_info(f'✅ 已创建 album_info.json (包含{len(all_tracks)}个选中曲目)')
+            
+            # HTML转Markdown辅助函数
+            def html_to_markdown(html):
+                if not html:
+                    return ""
+                html = unescape(html)
+                html = re.sub(r'<p[^>]*>', '\n', html)  # 段落换行
+                html = re.sub(r'</p>', '\n', html)
+                html = re.sub(r'<br\s*/?>', '\n', html)
+                html = re.sub(r'<span[^>]*>', '', html)
+                html = re.sub(r'</span>', '', html)
+                html = re.sub(r'<b[^>]*>', '**', html)
+                html = re.sub(r'</b>', '**', html)
+                html = re.sub(r'<strong[^>]*>', '**', html)
+                html = re.sub(r'</strong>', '**', html)
+                html = re.sub(r'<i[^>]*>', '*', html)
+                html = re.sub(r'</i>', '*', html)
+                html = re.sub(r'<[^>]+>', '', html)  # 去除其他标签
+                html = re.sub(r'\n+', '\n', html)  # 合并多余换行
+                return html.strip()
+            
+            rich_intro_md = html_to_markdown(album_info['richIntro'])
+            
+            # 保存 album_info.md  
+            md_path = os.path.join(save_dir, 'album_info.md')
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(f"# {album_info['albumTitle']}\n\n")
+                if album_info['cover']:
+                    f.write(f"![cover]({album_info['cover']})\n\n")
+                f.write(f"**专辑ID**: {album_info['albumId']}  \n")
+                f.write(f"**创建时间**: {album_info['createDate']}  \n")
+                f.write(f"**更新时间**: {album_info['updateDate']}  \n")
+                f.write(f"**下载类型**: 选中曲目下载  \n")
+                f.write(f"**总曲目数**: {len(all_tracks)}  \n")
+                if existing_album_info and new_tracks_info:
+                    f.write(f"**最新添加**: {len(new_tracks_info)} 个曲目  \n")
+                f.write(f"**最后更新**: {album_info['downloadInfo'].get('lastDownloadTime', album_info['downloadInfo'].get('downloadTime', ''))}  \n\n")
+                f.write(f"## 简介\n{rich_intro_md}\n\n")
+                f.write(f"## 已下载的曲目\n")
+                # 按index排序显示所有曲目
+                sorted_tracks = sorted(all_tracks, key=lambda x: x.get('index', 0))
+                for track_info in sorted_tracks:
+                    duration_str = f"{track_info['duration'] // 60}:{track_info['duration'] % 60:02d}" if track_info['duration'] else "未知"
+                    status_indicator = "🆕" if track_info in new_tracks_info else ""
+                    f.write(f"- [{track_info['index']:03d}] {track_info['title']} ({duration_str}) {status_indicator}\n")
+            
+            if existing_album_info:
+                self.log_info(f'✅ 已更新 album_info.md (新增曲目标记为🆕)')
+            else:
+                self.log_info(f'✅ 已创建 album_info.md')
+            
+            # 下载封面图片（如果不存在）
+            cover_path = os.path.join(save_dir, 'cover.jpg')
+            if not os.path.exists(cover_path):
+                cover_url = getattr(album, 'cover', None)
+                if cover_url:
+                    try:
+                        resp = requests.get(cover_url, timeout=10)
+                        if resp.status_code == 200:
+                            with open(cover_path, 'wb') as f:
+                                f.write(resp.content)
+                            self.log_info(f'✅ 已下载封面图片 cover.jpg')
+                        else:
+                            self.log_warning(f'封面下载失败，状态码: {resp.status_code}')
+                    except Exception as e:
+                        self.log_warning(f'下载封面失败: {e}')
+                else:
+                    self.log_info('专辑无封面图片')
+            else:
+                self.log_info('封面图片已存在，跳过下载')
+                
+        except Exception as e:
+            self.log_error(f'生成专辑信息文件失败: {e}')
+            import traceback
+            self.log_error(f'详细错误: {traceback.format_exc()}')
+
     def download_selected_tracks(self):
         """下载选中的曲目"""
         selected_items = self.tracks_tree.selection()
@@ -606,11 +856,13 @@ class XimalayaGUI:
                 downloader = M4ADownloader()
                 
                 # 创建下载目录
-                if hasattr(self, 'album') and self.album:
-                    safe_album_title = re.sub(r'[\\/:*?"<>|]', '_', self.album.albumTitle)
+                if hasattr(self, 'album') and self.album and self.album.albumTitle and self.album.albumTitle.strip():
+                    safe_album_title = re.sub(r'[\\/:*?"<>|]', '_', self.album.albumTitle.strip())
                     save_dir = os.path.join(self.default_download_dir, safe_album_title)
+                    self.log_info(f'使用专辑标题创建下载目录: {safe_album_title}')
                 else:
                     save_dir = os.path.join(self.default_download_dir, f'Album_{album_id}')
+                    self.log_info(f'专辑标题为空或无效，使用专辑ID创建下载目录: Album_{album_id}')
                 os.makedirs(save_dir, exist_ok=True)
                 
                 selected_tracks = []
@@ -619,6 +871,10 @@ class XimalayaGUI:
                     idx = int(self.tracks_tree.item(item, 'text')) - 1
                     if 0 <= idx < len(self.parsed_tracks):
                         selected_tracks.append((idx + 1, self.parsed_tracks[idx]))
+                
+                # 生成专辑信息文件
+                self.log_info('正在生成专辑信息文件...')
+                self.save_album_info_for_selected(save_dir, album_id, selected_tracks)
                 
                 total_selected = len(selected_tracks)
                 downloaded = 0
@@ -709,8 +965,8 @@ class XimalayaGUI:
                 import re
                 
                 # 创建下载目录路径
-                if hasattr(self, 'album') and self.album:
-                    safe_album_title = re.sub(r'[\\/:*?"<>|]', '_', self.album.albumTitle)
+                if hasattr(self, 'album') and self.album and self.album.albumTitle and self.album.albumTitle.strip():
+                    safe_album_title = re.sub(r'[\\/:*?"<>|]', '_', self.album.albumTitle.strip())
                     save_dir = os.path.join(self.default_download_dir, safe_album_title)
                 else:
                     save_dir = os.path.join(self.default_download_dir, f'Album_{album_id}')

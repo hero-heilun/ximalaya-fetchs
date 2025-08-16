@@ -23,16 +23,32 @@ class AlbumDownloader:
         if self.album is None:
             self.album = fetch_album(self.album_id)
         if not self.album:
-            self.log('获取专辑信息失败', level='error')
+            try:
+                self.log('获取专辑信息失败', level='error')
+            except TypeError:
+                self.log('获取专辑信息失败')
             return False
-        # 过滤专辑名中的非法字符
-        safe_album_title = re.sub(r'[\\/:*?"<>|]', '_', self.album.albumTitle)
+        
+        # 过滤专辑名中的非法字符，处理空标题情况
+        album_title = self.album.albumTitle if self.album.albumTitle and self.album.albumTitle.strip() else f'Album_{self.album_id}'
+        safe_album_title = re.sub(r'[\\/:*?"<>|]', '_', album_title)
+        
         if self.save_dir:
             self.save_dir = os.path.join(self.save_dir, safe_album_title)
         else:
             self.save_dir = os.path.join('downloads', safe_album_title)
         os.makedirs(self.save_dir, exist_ok=True)
-        self.log(f'专辑：{self.album.albumTitle}，准备下载...', level='info')
+        
+        if self.album.albumTitle and self.album.albumTitle.strip():
+            try:
+                self.log(f'专辑：{self.album.albumTitle}，准备下载...', level='info')
+            except TypeError:
+                self.log(f'专辑：{self.album.albumTitle}，准备下载...')
+        else:
+            try:
+                self.log(f'专辑标题为空，使用专辑ID {self.album_id} 创建目录，准备下载...', level='info')
+            except TypeError:
+                self.log(f'专辑标题为空，使用专辑ID {self.album_id} 创建目录，准备下载...')
         return True
 
     def save_album_info(self):
