@@ -469,7 +469,12 @@ class XimalayaLoginDialog:
     def save_cookie_to_env(self, cookie):
         """保存Cookie到.env文件"""
         try:
-            env_file = ".env"
+            # 使用应用程序配置目录中的.env文件
+            config_dir = os.environ.get('XIMALAYA_CONFIG_DIR', os.getcwd())
+            env_file = os.path.join(config_dir, '.env')
+            
+            # 确保配置目录存在
+            os.makedirs(config_dir, exist_ok=True)
             
             # 确保.env文件存在
             if not os.path.exists(env_file):
@@ -511,7 +516,10 @@ class XimalayaLoginDialog:
 
 def check_cookie_exists():
     """检查是否存在有效的Cookie"""
-    load_dotenv()
+    # 使用应用程序配置目录中的.env文件
+    config_dir = os.environ.get('XIMALAYA_CONFIG_DIR', os.getcwd())
+    env_path = os.path.join(config_dir, '.env')
+    load_dotenv(env_path)
     cookie = os.getenv('XIMALAYA_COOKIES')
     
     if not cookie:

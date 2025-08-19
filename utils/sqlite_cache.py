@@ -29,7 +29,10 @@ class SqliteCache:
     
     def __init__(self, cache_dir: str = None, db_name: str = "track_cache.db"):
         if cache_dir is None:
-            cache_dir = os.path.join(os.getcwd(), 'cache')
+            # 优先使用环境变量中的缓存目录
+            cache_dir = os.environ.get('XIMALAYA_CACHE_DIR')
+            if cache_dir is None:
+                cache_dir = os.path.join(os.getcwd(), 'cache')
         
         self.cache_dir = cache_dir
         self.db_path = os.path.join(cache_dir, db_name)
