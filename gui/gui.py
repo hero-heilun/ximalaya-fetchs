@@ -202,28 +202,64 @@ class XimalayaGUI:
         self.log_text.tag_config('info', foreground='black')
         self.log_text.tag_config('warning', foreground='orange')
         self.log_text.tag_config('error', foreground='red')
+        
+        # 定期检查UI响应性
+        self.check_ui_responsive()
+        
+    def check_ui_responsive(self):
+        """定期检查UI响应性"""
+        import time
+        self.last_ui_check = time.time()
+        
+        def ui_check():
+            current_time = time.time()
+            if hasattr(self, 'last_ui_check'):
+                time_diff = current_time - self.last_ui_check
+                if time_diff > 2.0:  # 超过2秒无响应
+                    self.log_warning(f'UI响应延迟: {time_diff:.1f}秒')
+            self.last_ui_check = current_time
+            # 每5秒检查一次UI响应性
+            self.root.after(5000, self.check_ui_responsive)
+        
+        self.root.after(100, ui_check)
 
     def run_in_thread(self, func):
-        threading.Thread(target=func, daemon=True).start()
+        def wrapped_func():
+            try:
+                func()
+            except Exception as e:
+                # 确保异常信息在主线程中显示
+                self.root.after(0, lambda: self.log_error(f'线程异常: {e}'))
+        threading.Thread(target=wrapped_func, daemon=True).start()
 
     def show_cover_image(self, url):
         target_size = (150, 150)
         if not url:
             self.cover_label.config(image='', text='无封面')
             return
-        try:
-            response = requests.get(url, timeout=10)
-            img_data = response.content
-            img = Image.open(BytesIO(img_data)).convert('RGBA')
-            # 保持比例缩放并居中填充白底
-            img.thumbnail(target_size, Image.LANCZOS)
-            bg = Image.new('RGBA', target_size, (255, 255, 255, 255))
-            offset = ((target_size[0] - img.width) // 2, (target_size[1] - img.height) // 2)
-            bg.paste(img, offset, img if img.mode == 'RGBA' else None)
-            self.cover_imgtk = ImageTk.PhotoImage(bg)
-            self.cover_label.config(image=self.cover_imgtk, text='')
-        except Exception:
-            self.cover_label.config(image='', text='加载失败')
+        
+        def load_image_async():
+            try:
+                response = requests.get(url, timeout=5)  # 减少超时时间
+                img_data = response.content
+                img = Image.open(BytesIO(img_data)).convert('RGBA')
+                # 保持比例缩放并居中填充白底
+                img.thumbnail(target_size, Image.LANCZOS)
+                bg = Image.new('RGBA', target_size, (255, 255, 255, 255))
+                offset = ((target_size[0] - img.width) // 2, (target_size[1] - img.height) // 2)
+                bg.paste(img, offset, img if img.mode == 'RGBA' else None)
+                
+                # 在主线程中更新UI
+                def update_ui():
+                    self.cover_imgtk = ImageTk.PhotoImage(bg)
+                    self.cover_label.config(image=self.cover_imgtk, text='')
+                self.root.after(0, update_ui)
+            except Exception:
+                # 在主线程中更新UI
+                self.root.after(0, lambda: self.cover_label.config(image='', text='加载失败'))
+        
+        # 异步加载图片，避免阻塞UI线程
+        self.run_in_thread(load_image_async)
 
     def set_progress(self, current, total, filename=None):
         percent = (current / total * 100) if total else 0
@@ -392,9 +428,16 @@ class XimalayaGUI:
                 page_size = 20
                 all_tracks = []
                 
-                # 动态更新UI的辅助函数
+                # 批量更新UI以减少事件队列堵塞
+                ui_updates = []
+                
                 def schedule_ui_update(track_obj, track_idx, dur_str, status_str):
-                    self.root.after(0, lambda: self.add_track_to_list(track_idx, track_obj, dur_str, status_str))
+                    ui_updates.append((track_idx, track_obj, dur_str, status_str))
+                    # 每10个或达到页面末尾时批量更新UI
+                    if len(ui_updates) >= 10 or track_idx % page_size == 0:
+                        batch_updates = ui_updates.copy()
+                        ui_updates.clear()
+                        self.root.after(0, lambda: self.batch_add_tracks(batch_updates))
                 
                 def update_progress_info(current_page, total_pages, current_count, total_count):
                     self.root.after(0, lambda: self.set_progress(
@@ -463,6 +506,10 @@ class XimalayaGUI:
                         self.log_error(f'获取第{page}页时出错: {e}')
                         break
                 
+                # 处理剩余的UI更新
+                if ui_updates:
+                    self.root.after(0, lambda: self.batch_add_tracks(ui_updates))
+                
                 self.parsed_tracks = all_tracks
                 
                 # 🚀 计算缓存统计信息
@@ -518,6 +565,32 @@ class XimalayaGUI:
         # 动态滚动到最新添加的项目，但不要过于频繁
         if idx % 5 == 0:  # 每5个项目滚动一次
             self.tracks_tree.see(item_id)
+    
+    def batch_add_tracks(self, track_updates):
+        """批量添加曲目到列表，减少UI更新频率"""
+        last_item_id = None
+        for idx, track, duration_str, url_status in track_updates:
+            item_id = self.tracks_tree.insert('', 'end', text=str(idx), values=(
+                track.title,
+                duration_str,
+                url_status
+            ))
+            # 根据解析状态设置显示
+            if url_status == "解析失败":
+                self.tracks_tree.set(item_id, 'url_status', '❌ 解析失败')
+            elif url_status == "已解析":
+                self.tracks_tree.set(item_id, 'url_status', '✅ 已解析')
+            elif url_status == "待解析":
+                self.tracks_tree.set(item_id, 'url_status', '⏳ 待解析')
+            elif url_status == "解析中":
+                self.tracks_tree.set(item_id, 'url_status', '🔄 解析中')
+            else:
+                self.tracks_tree.set(item_id, 'url_status', url_status)
+            last_item_id = item_id
+        
+        # 滚动到最后添加的项目
+        if last_item_id:
+            self.tracks_tree.see(last_item_id)
     
     def select_all_tracks(self):
         """全选所有曲目"""
