@@ -103,6 +103,14 @@ class M4ADownloader:
                 raise  # 向上抛出风控异常
             except requests.exceptions.RequestException as e:
                 error_msg = str(e)
+                
+                # 检查是否是403 Forbidden错误 - 在第一次遇到时就处理
+                if (hasattr(e, 'response') and e.response and 
+                    e.response.status_code == 403):
+                    log_func(f"⚠️ 检测到403 Forbidden错误，URL可能已过期", level='warning')
+                    # 直接重新抛出，让外层处理缓存清除
+                    raise e
+                
                 if hasattr(e, 'response') and e.response:
                     try:
                         error_data = e.response.json()
@@ -126,6 +134,10 @@ class M4ADownloader:
                     # 保存进度以便断点续传
                     if os.path.exists(output_file):
                         log_func(f"保留部分下载文件以便续传: {output_file}", level='info')
+                    
+                    # 如果是HTTPError，重新抛出以便上层处理（特别是403错误）
+                    if isinstance(e, requests.exceptions.HTTPError):
+                        raise e
         return False
 
     def get_track_download_url(self, track_id, album_id=None):
@@ -156,14 +168,31 @@ class M4ADownloader:
                     return None
                 time.sleep(1 * attempt)
 
-    def download_from_url(self, url, output_file, log_func=print):
+    def download_from_url(self, url, output_file, log_func=print, track_id=None, album_id=None):
         """
         直接下载指定url到本地文件，带重试和日志
+        如果提供了track_id和album_id，在403错误时会清除对应的缓存
         """
         log_func(f'正在下载: {output_file}', level='info')
-        self.download_m4a(url, output_file, log_func=log_func)
-        log_func('下载完成', level='info')
-        return True
+        
+        try:
+            success = self.download_m4a(url, output_file, log_func=log_func)
+            if success:
+                log_func('下载完成', level='info')
+            return success
+        except requests.exceptions.HTTPError as e:
+            # 检查是否是403 Forbidden错误
+            if hasattr(e, 'response') and e.response and e.response.status_code == 403:
+                if track_id and album_id:
+                    log_func(f'⚠️ 检测到403 Forbidden错误，URL可能已过期，正在清除缓存...', level='warning')
+                    try:
+                        from utils.sqlite_cache import get_sqlite_cache
+                        cache = get_sqlite_cache()
+                        cache.remove_track_cache(track_id, album_id, log_func=log_func)
+                        log_func(f'💡 提示：缓存已清除，请重新解析该曲目的URL后再试', level='info')
+                    except Exception as cache_err:
+                        log_func(f'清除缓存时出错: {cache_err}', level='error')
+            raise
 
     def download_track_by_id(self, track_id, album_id=None, output_file=None, log_func=print):
         """

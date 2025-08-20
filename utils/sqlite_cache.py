@@ -299,6 +299,40 @@ class SqliteCache:
         except Exception:
             pass
     
+    def remove_track_cache(self, track_id: int, album_id: int, log_func=None):
+        """公开方法：删除指定track的缓存"""
+        def log(msg, level='info'):
+            if log_func:
+                try:
+                    log_func(msg, level=level)
+                except TypeError:
+                    log_func(msg)
+            else:
+                print(msg)
+        
+        with self._lock:
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT COUNT(*) FROM track_cache WHERE track_id = ? AND album_id = ?', 
+                                 (track_id, album_id))
+                    exists = cursor.fetchone()[0] > 0
+                    
+                    if exists:
+                        conn.execute('''
+                            DELETE FROM track_cache 
+                            WHERE track_id = ? AND album_id = ?
+                        ''', (track_id, album_id))
+                        conn.commit()
+                        log(f"[缓存-清除] ✅ 已删除 Track {track_id} (Album {album_id}) 的缓存", 'info')
+                        return True
+                    else:
+                        log(f"[缓存-清除] ⚠️ Track {track_id} (Album {album_id}) 缓存不存在", 'warning')
+                        return False
+            except Exception as e:
+                log(f"[缓存-清除] ❌ 删除缓存失败: {e}", 'error')
+                return False
+    
     def get_album_cached_tracks(self, album_id: int) -> List[CachedTrack]:
         """获取专辑的所有缓存曲目"""
         with self._lock:

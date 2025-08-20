@@ -998,7 +998,14 @@ class XimalayaGUI:
                         
                         self.log_info(f'[{track_idx}/{len(tracks_to_download)}] 开始下载: {track.title}')
                         
-                        downloader.download_from_url(track.url, filepath, log_func=self.log)
+                        # 传递track_id和album_id以便在403错误时清除缓存
+                        downloader.download_from_url(
+                            track.url, 
+                            filepath, 
+                            log_func=self.log, 
+                            track_id=track.trackId, 
+                            album_id=int(album_id)
+                        )
                         self.log_info(f'[{track_idx}] 下载完成: {filename}')
                         
                         downloaded += 1
