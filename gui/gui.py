@@ -22,6 +22,9 @@ class XimalayaGUI:
         self.root.lift()
         self.root.focus_force()
         
+        # 初始化按钮管理
+        self._main_buttons = {}
+        
         self._init_widgets()
         self.setup_log_tags()
         
@@ -71,11 +74,21 @@ class XimalayaGUI:
         btn_frame = tk.Frame(left_panel)
         btn_frame.pack(fill='x', pady=(0, 10))
         
-        tk.Button(btn_frame, text='获取专辑信息', width=12, command=self.run_album_info).pack(side='left', padx=(0, 5))
-        tk.Button(btn_frame, text='解析曲目', width=12, command=self.run_parse_tracks).pack(side='left', padx=(0, 5))
-        tk.Button(btn_frame, text='下载专辑', width=12, command=self.run_album_download).pack(side='left', padx=(0, 5))
-        tk.Button(btn_frame, text='下载单曲', width=12, command=self.run_track_download).pack(side='left', padx=(0, 5))
-        tk.Button(btn_frame, text='登录管理', width=12, command=self.show_login_dialog).pack(side='left')
+        # 创建并注册主要按钮
+        self._main_buttons['album_info'] = tk.Button(btn_frame, text='获取专辑信息', width=12, command=self.run_album_info)
+        self._main_buttons['album_info'].pack(side='left', padx=(0, 5))
+        
+        self._main_buttons['parse_tracks'] = tk.Button(btn_frame, text='解析曲目', width=12, command=self.run_parse_tracks)
+        self._main_buttons['parse_tracks'].pack(side='left', padx=(0, 5))
+        
+        self._main_buttons['download_album'] = tk.Button(btn_frame, text='下载专辑', width=12, command=self.run_album_download)
+        self._main_buttons['download_album'].pack(side='left', padx=(0, 5))
+        
+        self._main_buttons['download_track'] = tk.Button(btn_frame, text='下载单曲', width=12, command=self.run_track_download)
+        self._main_buttons['download_track'].pack(side='left', padx=(0, 5))
+        
+        self._main_buttons['login'] = tk.Button(btn_frame, text='登录管理', width=12, command=self.show_login_dialog)
+        self._main_buttons['login'].pack(side='left')
         # 专辑信息展示区
         info_frame = tk.LabelFrame(left_panel, text='专辑信息', padx=10, pady=10)
         info_frame.pack(fill='x', pady=(0, 10))
@@ -129,8 +142,42 @@ class XimalayaGUI:
         tree_frame = tk.Frame(tracks_frame)
         tree_frame.pack(fill='both', expand=True)
         
+        # 创建优化的Treeview，提高多选响应性
         self.tracks_tree = ttk.Treeview(tree_frame, columns=('title', 'duration', 'url_status'), show='tree headings')
         self.tracks_tree.pack(side='left', fill='both', expand=True)
+        
+        # 配置优化设置
+        self.tracks_tree.configure(selectmode='extended')  # 明确启用多选模式
+        
+        # 选择事件防抖处理
+        self._selection_debounce_id = None
+        self._last_selection_time = 0
+        
+        def on_selection_change(event):
+            """选择事件防抖处理，避免频繁更新UI"""
+            import time
+            current_time = time.time()
+            self._last_selection_time = current_time
+            
+            # 取消之前的防抖调度
+            if self._selection_debounce_id:
+                self.root.after_cancel(self._selection_debounce_id)
+            
+            # 防抖延迟50ms，提高多选流畅度
+            def delayed_update():
+                if time.time() - self._last_selection_time >= 0.05:  # 50ms内没有新的选择事件
+                    try:
+                        selected_count = len(self.tracks_tree.selection())
+                        if selected_count > 0:
+                            self.schedule_ui_update(lambda: self.set_button_state('download_selected', True))
+                        else:
+                            self.schedule_ui_update(lambda: self.set_button_state('download_selected', False))
+                    except Exception:
+                        pass
+                        
+            self._selection_debounce_id = self.root.after(50, delayed_update)
+        
+        self.tracks_tree.bind('<<TreeviewSelect>>', on_selection_change)
         
         # 设置列标题和宽度
         self.tracks_tree.heading('#0', text='序号')
@@ -144,17 +191,24 @@ class XimalayaGUI:
         self.tracks_tree.column('url_status', width=120, minwidth=100)
         
         # 添加滚动条
-        tracks_scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=self.tracks_tree.yview)
-        tracks_scrollbar.pack(side='right', fill='y')
-        self.tracks_tree.configure(yscrollcommand=tracks_scrollbar.set)
+        self.tracks_scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=self.tracks_tree.yview)
+        self.tracks_scrollbar.pack(side='right', fill='y')
+        self.tracks_tree.configure(yscrollcommand=self.tracks_scrollbar.set)
         
         # 曲目操作按钮
         tracks_btn_frame = tk.Frame(tracks_frame)
         tracks_btn_frame.pack(fill='x', pady=(10, 0))
         
-        tk.Button(tracks_btn_frame, text='解析选中URL', command=self.parse_selected_urls).pack(side='left', padx=(0, 5))
-        tk.Button(tracks_btn_frame, text='下载选中', command=self.download_selected_tracks).pack(side='left', padx=(0, 5))
-        tk.Button(tracks_btn_frame, text='检查文件状态', command=self.check_file_status).pack(side='left', padx=(0, 5))
+        # 注册曲目操作按钮以便状态管理
+        self._main_buttons['parse_urls'] = tk.Button(tracks_btn_frame, text='解析选中URL', command=self.parse_selected_urls)
+        self._main_buttons['parse_urls'].pack(side='left', padx=(0, 5))
+        
+        self._main_buttons['download_selected'] = tk.Button(tracks_btn_frame, text='下载选中', command=self.download_selected_tracks)
+        self._main_buttons['download_selected'].pack(side='left', padx=(0, 5))
+        
+        self._main_buttons['check_status'] = tk.Button(tracks_btn_frame, text='检查文件状态', command=self.check_file_status)
+        self._main_buttons['check_status'].pack(side='left', padx=(0, 5))
+        
         tk.Button(tracks_btn_frame, text='缓存统计', command=self.show_cache_stats).pack(side='left', padx=(0, 5))
         tk.Button(tracks_btn_frame, text='全选', command=self.select_all_tracks).pack(side='left', padx=(0, 5))
         tk.Button(tracks_btn_frame, text='清空', command=self.clear_tracks).pack(side='left')
@@ -189,7 +243,9 @@ class XimalayaGUI:
             self.log_text.insert(tk.END, msg + '\n', tag)
             self.log_text.see(tk.END)
             self.log_text.config(state='disabled')
-        self.log_text.after(0, append)
+        
+        # 使用更高优先级的延迟来减少事件队列堵塞
+        self.log_text.after_idle(append)
 
     def log_info(self, msg):
         self.log(msg, level='info')
@@ -205,6 +261,13 @@ class XimalayaGUI:
         
         # 定期检查UI响应性
         self.check_ui_responsive()
+        
+        # UI更新管理器
+        self._ui_update_queue = []
+        self._ui_update_scheduled = False
+        
+        # 按钮状态管理
+        self._button_states = {}
         
     def check_ui_responsive(self):
         """定期检查UI响应性"""
@@ -222,6 +285,49 @@ class XimalayaGUI:
             self.root.after(5000, self.check_ui_responsive)
         
         self.root.after(100, ui_check)
+    
+    def schedule_ui_update(self, func):
+        """调度UI更新，避免事件队列堵塞"""
+        self._ui_update_queue.append(func)
+        
+        if not self._ui_update_scheduled:
+            self._ui_update_scheduled = True
+            self.root.after_idle(self._process_ui_updates)
+    
+    def _process_ui_updates(self):
+        """批量处理UI更新"""
+        # 限制每次处理的更新数量，避免长时间阻塞
+        max_updates_per_batch = 10
+        processed = 0
+        
+        while self._ui_update_queue and processed < max_updates_per_batch:
+            try:
+                func = self._ui_update_queue.pop(0)
+                func()
+                processed += 1
+            except Exception as e:
+                self.log_error(f'UI更新异常: {e}')
+        
+        # 如果还有更新待处理，安排下一批
+        if self._ui_update_queue:
+            self.root.after_idle(self._process_ui_updates)
+        else:
+            self._ui_update_scheduled = False
+    
+    def set_button_state(self, button_name, enabled=True):
+        """设置按钮状态，防止重复点击"""
+        def update_state():
+            if button_name in self._main_buttons:
+                try:
+                    button = self._main_buttons[button_name]
+                    if enabled:
+                        button.config(state='normal')
+                    else:
+                        button.config(state='disabled')
+                except tk.TclError:
+                    pass
+        
+        self.schedule_ui_update(update_state)
 
     def run_in_thread(self, func):
         def wrapped_func():
@@ -229,7 +335,7 @@ class XimalayaGUI:
                 func()
             except Exception as e:
                 # 确保异常信息在主线程中显示
-                self.root.after(0, lambda: self.log_error(f'线程异常: {e}'))
+                self.schedule_ui_update(lambda: self.log_error(f'线程异常: {e}'))
         threading.Thread(target=wrapped_func, daemon=True).start()
 
     def show_cover_image(self, url):
@@ -253,21 +359,25 @@ class XimalayaGUI:
                 def update_ui():
                     self.cover_imgtk = ImageTk.PhotoImage(bg)
                     self.cover_label.config(image=self.cover_imgtk, text='')
-                self.root.after(0, update_ui)
+                self.schedule_ui_update(update_ui)
             except Exception:
                 # 在主线程中更新UI
-                self.root.after(0, lambda: self.cover_label.config(image='', text='加载失败'))
+                self.schedule_ui_update(lambda: self.cover_label.config(image='', text='加载失败'))
         
         # 异步加载图片，避免阻塞UI线程
         self.run_in_thread(load_image_async)
 
     def set_progress(self, current, total, filename=None):
         percent = (current / total * 100) if total else 0
-        self.progress_var.set(percent)
-        if filename:
-            self.progress_label.config(text=f'({current}/{total}) {filename}')
-        else:
-            self.progress_label.config(text=f'({current}/{total})')
+        try:
+            self.progress_var.set(percent)
+            if filename:
+                self.progress_label.config(text=f'({current}/{total}) {filename}')
+            else:
+                self.progress_label.config(text=f'({current}/{total})')
+        except tk.TclError:
+            # 如果窗口已关闭，忽略更新
+            pass
 
     def run_album_info(self):
         album_id = self.album_id_var.get().strip()
@@ -275,41 +385,57 @@ class XimalayaGUI:
             self.log_warning('请输入专辑ID')
             messagebox.showwarning('提示', '请输入专辑ID')
             return
+        
+        # 禁用按钮防止重复点击
+        self.set_button_state('album_info', False)
         self.log_info(f'获取专辑信息: {album_id}')
         def task():
             album = fetch_album(int(album_id))
             if album:
-                # 更新专辑对象
-                self.album = album
-                self.album_title_var.set(album.albumTitle)
-                intro = re.sub('<[^<]+?>', '', album.richIntro or '')
-                self.intro_text.config(state='normal')
-                self.intro_text.delete('1.0', tk.END)
-                self.intro_text.insert(tk.END, intro)
-                self.intro_text.config(state='disabled')
-                self.album_create_var.set(album.createDate)
-                self.album_update_var.set(album.updateDate)
+                # 所有UI更新都调度到主线程
+                def update_ui():
+                    self.album = album
+                    self.album_title_var.set(album.albumTitle)
+                    intro = re.sub('<[^<]+?>', '', album.richIntro or '')
+                    self.intro_text.config(state='normal')
+                    self.intro_text.delete('1.0', tk.END)
+                    self.intro_text.insert(tk.END, intro)
+                    self.intro_text.config(state='disabled')
+                    self.album_create_var.set(album.createDate)
+                    self.album_update_var.set(album.updateDate)
+                    
+                self.schedule_ui_update(update_ui)
+                
+                # 异步获取曲目总数
                 cover_url = album.cover if album.cover else ''
                 try:
                     tracks = fetch_album_tracks(int(album_id), 1, 1, log_func=self.log)
                     total_count = tracks[0].totalCount if tracks and tracks[0].totalCount else ''
                 except Exception:
                     total_count = ''
-                self.album_count_var.set(str(total_count))
+                
+                # 更新总数和封面
+                self.schedule_ui_update(lambda: self.album_count_var.set(str(total_count)))
                 self.show_cover_image(cover_url)
                 self.log_info(f'获取专辑成功: {album.albumTitle}')
             else:
                 # 清除专辑对象
-                self.album = None
-                self.album_title_var.set('')
-                self.intro_text.config(state='normal')
-                self.intro_text.delete('1.0', tk.END)
-                self.intro_text.config(state='disabled')
-                self.album_create_var.set('')
-                self.album_update_var.set('')
-                self.album_count_var.set('')
+                def clear_ui():
+                    self.album = None
+                    self.album_title_var.set('')
+                    self.intro_text.config(state='normal')
+                    self.intro_text.delete('1.0', tk.END)
+                    self.intro_text.config(state='disabled')
+                    self.album_create_var.set('')
+                    self.album_update_var.set('')
+                    self.album_count_var.set('')
+                    
+                self.schedule_ui_update(clear_ui)
                 self.show_cover_image('')
                 self.log_error('获取专辑信息失败')
+            
+            # 重新启用按钮
+            self.set_button_state('album_info', True)
         self.run_in_thread(task)
 
     def run_album_download(self):
@@ -338,7 +464,7 @@ class XimalayaGUI:
             try:
                 self.log_info('下载线程已启动')
                 def progress_hook(current, total, filename=None):
-                    self.root.after(0, lambda: self.set_progress(current, total, filename))
+                    self.schedule_ui_update(lambda: self.set_progress(current, total, filename))
                 AlbumDownloader(
                     album_id,
                     log_func=self.log,
@@ -437,10 +563,10 @@ class XimalayaGUI:
                     if len(ui_updates) >= 10 or track_idx % page_size == 0:
                         batch_updates = ui_updates.copy()
                         ui_updates.clear()
-                        self.root.after(0, lambda: self.batch_add_tracks(batch_updates))
+                        self.schedule_ui_update(lambda: self.batch_add_tracks(batch_updates))
                 
                 def update_progress_info(current_page, total_pages, current_count, total_count):
-                    self.root.after(0, lambda: self.set_progress(
+                    self.schedule_ui_update(lambda: self.set_progress(
                         current_count, total_count, 
                         f"获取曲目: 第{current_page}/{total_pages}页, {current_count}/{total_count}首"
                     ))
@@ -508,7 +634,7 @@ class XimalayaGUI:
                 
                 # 处理剩余的UI更新
                 if ui_updates:
-                    self.root.after(0, lambda: self.batch_add_tracks(ui_updates))
+                    self.schedule_ui_update(lambda: self.batch_add_tracks(ui_updates))
                 
                 self.parsed_tracks = all_tracks
                 
@@ -534,7 +660,7 @@ class XimalayaGUI:
                 if cache_percentage < 100:
                     status_msg += "，请选择曲目并解析URL"
                     
-                self.root.after(0, lambda: self.set_progress(
+                self.schedule_ui_update(lambda: self.set_progress(
                     len(all_tracks), len(all_tracks), status_msg
                 ))
                 
@@ -568,34 +694,57 @@ class XimalayaGUI:
     
     def batch_add_tracks(self, track_updates):
         """批量添加曲目到列表，减少UI更新频率"""
-        last_item_id = None
-        for idx, track, duration_str, url_status in track_updates:
-            item_id = self.tracks_tree.insert('', 'end', text=str(idx), values=(
-                track.title,
-                duration_str,
-                url_status
-            ))
-            # 根据解析状态设置显示
-            if url_status == "解析失败":
-                self.tracks_tree.set(item_id, 'url_status', '❌ 解析失败')
-            elif url_status == "已解析":
-                self.tracks_tree.set(item_id, 'url_status', '✅ 已解析')
-            elif url_status == "待解析":
-                self.tracks_tree.set(item_id, 'url_status', '⏳ 待解析')
-            elif url_status == "解析中":
-                self.tracks_tree.set(item_id, 'url_status', '🔄 解析中')
-            else:
-                self.tracks_tree.set(item_id, 'url_status', url_status)
-            last_item_id = item_id
-        
-        # 滚动到最后添加的项目
-        if last_item_id:
-            self.tracks_tree.see(last_item_id)
+        try:
+            # 临时禁用滚动条更新以提高性能
+            self.tracks_tree.configure(yscrollcommand=None)
+            
+            # 批量插入优化：减少对tkinter的调用次数
+            status_map = {
+                "解析失败": '❌ 解析失败',
+                "已解析": '✅ 已解析', 
+                "待解析": '⏳ 待解析',
+                "解析中": '🔄 解析中'
+            }
+            
+            # 预处理所有数据，减少循环中的计算
+            prepared_items = []
+            for idx, track, duration_str, url_status in track_updates:
+                display_status = status_map.get(url_status, url_status)
+                prepared_items.append((str(idx), track.title, duration_str, display_status))
+            
+            # 批量插入
+            last_item_id = None
+            for text, title, duration, status in prepared_items:
+                item_id = self.tracks_tree.insert('', 'end', text=text, values=(title, duration, status))
+                last_item_id = item_id
+            
+            # 重新启用滚动条
+            self.tracks_tree.configure(yscrollcommand=self.tracks_scrollbar.set)
+            
+            # 只在有新增内容且是首次加载时才自动滚动到底部
+            if last_item_id and len(track_updates) > 5:
+                self.tracks_tree.see(last_item_id)
+                
+        except Exception as e:
+            self.log_error(f'批量添加曲目时出错: {e}')
+            # 确保滚动条重新启用
+            try:
+                self.tracks_tree.configure(yscrollcommand=self.tracks_scrollbar.set)
+            except:
+                pass
     
     def select_all_tracks(self):
         """全选所有曲目"""
-        for item in self.tracks_tree.get_children():
-            self.tracks_tree.selection_add(item)
+        try:
+            # 一次性选择所有项目，比逐个添加更高效
+            all_items = self.tracks_tree.get_children()
+            if all_items:
+                self.tracks_tree.selection_set(all_items)
+                self.log_info(f'已选择 {len(all_items)} 个曲目')
+            else:
+                self.log_warning('没有曲目可选择')
+        except Exception as e:
+            self.log_error(f'全选操作失败: {e}')
     
     def clear_tracks(self):
         """清空曲目列表"""
@@ -641,7 +790,7 @@ class XimalayaGUI:
             self.log_info(f'跳过 {len(skipped_tracks)} 个已解析URL的曲目')
             # 更新界面显示为已解析状态
             for item, idx, track in skipped_tracks:
-                self.root.after(0, lambda i=item: self.tracks_tree.set(i, 'url_status', '✅ 已解析'))
+                self.schedule_ui_update(lambda i=item: self.tracks_tree.set(i, 'url_status', '✅ 已解析'))
         
         if not selected_tracks:
             if skipped_tracks:
@@ -656,11 +805,11 @@ class XimalayaGUI:
             try:
                 # 先更新状态为"解析中"
                 for item, idx in selected_indices:
-                    self.root.after(0, lambda i=item: self.tracks_tree.set(i, 'url_status', '🔄 解析中'))
+                    self.schedule_ui_update(lambda i=item: self.tracks_tree.set(i, 'url_status', '🔄 解析中'))
                 
                 # 进度回调函数
                 def progress_callback(completed, total):
-                    self.root.after(0, lambda: self.set_progress(completed, total, f"解析URL: {completed}/{total}"))
+                    self.schedule_ui_update(lambda: self.set_progress(completed, total, f"解析URL: {completed}/{total}"))
                 
                 # 并发解析URL
                 parsed_tracks = parse_tracks_concurrent(
@@ -683,7 +832,7 @@ class XimalayaGUI:
                     else:
                         status = '❌ 解析失败'
                     
-                    self.root.after(0, lambda i=item, s=status: self.tracks_tree.set(i, 'url_status', s))
+                    self.schedule_ui_update(lambda i=item, s=status: self.tracks_tree.set(i, 'url_status', s))
                 
                 success_count = sum(1 for track in parsed_tracks if track.url)
                 self.log_info(f'URL解析完成！成功解析 {success_count}/{len(selected_tracks)} 个曲目')
@@ -691,13 +840,13 @@ class XimalayaGUI:
                 # SQLite缓存自动保存，无需手动保存
                 self.log_info('[缓存] SQLite缓存已自动保存')
                 
-                self.root.after(0, lambda: self.set_progress(len(selected_tracks), len(selected_tracks), "URL解析完成"))
+                self.schedule_ui_update(lambda: self.set_progress(len(selected_tracks), len(selected_tracks), "URL解析完成"))
                 
             except Exception as e:
                 self.log_error(f'URL解析异常: {e}')
                 # 恢复状态
                 for item, idx in selected_indices:
-                    self.root.after(0, lambda i=item: self.tracks_tree.set(i, 'url_status', '⏳ 待解析'))
+                    self.schedule_ui_update(lambda i=item: self.tracks_tree.set(i, 'url_status', '⏳ 待解析'))
                 
         self.run_in_thread(task)
     
@@ -898,20 +1047,31 @@ class XimalayaGUI:
 
     def download_selected_tracks(self):
         """下载选中的曲目"""
-        selected_items = self.tracks_tree.selection()
-        if not selected_items:
-            self.log_warning('请先选择要下载的曲目')
-            messagebox.showwarning('提示', '请先选择要下载的曲目')
+        # 立即禁用按钮提供即时反馈
+        self.set_button_state('download_selected', False)
+        
+        try:
+            selected_items = self.tracks_tree.selection()
+            if not selected_items:
+                self.log_warning('请先选择要下载的曲目')
+                messagebox.showwarning('提示', '请先选择要下载的曲目')
+                return
+                
+            if not self.parsed_tracks:
+                self.log_warning('请先解析曲目')
+                return
+                
+            album_id = self.album_id_var.get().strip()
+            if not album_id:
+                self.log_warning('请输入专辑ID')
+                return
+        except Exception as e:
+            self.log_error(f'获取选中项目时出错: {e}')
             return
-            
-        if not self.parsed_tracks:
-            self.log_warning('请先解析曲目')
-            return
-            
-        album_id = self.album_id_var.get().strip()
-        if not album_id:
-            self.log_warning('请输入专辑ID')
-            return
+        finally:
+            # 如果参数验证失败，重新启用按钮
+            if not hasattr(self, '_download_in_progress'):
+                self.set_button_state('download_selected', True)
             
         try:
             delay = float(self.delay_var.get())
@@ -922,6 +1082,9 @@ class XimalayaGUI:
         
         def task():
             try:
+                # 标记下载正在进行
+                self._download_in_progress = True
+                
                 from downloader.downloader import M4ADownloader
                 import os
                 import re
@@ -1025,6 +1188,11 @@ class XimalayaGUI:
                 
             except Exception as e:
                 self.log_error(f'批量下载异常: {e}')
+            finally:
+                # 清除下载标记并重新启用按钮
+                if hasattr(self, '_download_in_progress'):
+                    delattr(self, '_download_in_progress')
+                self.set_button_state('download_selected', True)
                 
         self.run_in_thread(task)
     
@@ -1088,11 +1256,11 @@ class XimalayaGUI:
                                 status = '⏳ 待解析'
                             self.tracks_tree.set(item_id, 'url_status', status)
                     
-                    self.root.after(0, update_status)
+                    self.schedule_ui_update(update_status)
                     
                     # 更新进度
                     if track_idx % 10 == 0 or track_idx == total_count:
-                        self.root.after(0, lambda c=track_idx, t=total_count: self.set_progress(c, t, f"检查状态: {c}/{t}"))
+                        self.schedule_ui_update(lambda c=track_idx, t=total_count: self.set_progress(c, t, f"检查状态: {c}/{t}"))
                 
                 # 显示检查结果
                 self.log_info(f'文件状态检查完成:')
@@ -1102,7 +1270,7 @@ class XimalayaGUI:
                 self.log_info(f'  待解析: {total_count - parsed_count}')
                 self.log_info(f'  待下载: {parsed_count - downloaded_count}')
                 
-                self.root.after(0, lambda: self.set_progress(total_count, total_count, "状态检查完成"))
+                self.schedule_ui_update(lambda: self.set_progress(total_count, total_count, "状态检查完成"))
                 
             except Exception as e:
                 self.log_error(f'检查文件状态异常: {e}')
@@ -1175,7 +1343,7 @@ class XimalayaGUI:
                 time.sleep(60)
                 
                 def progress_hook(current, total, filename=None):
-                    self.root.after(0, lambda: self.set_progress(current, total, filename))
+                    self.schedule_ui_update(lambda: self.set_progress(current, total, filename))
                 
                 self.log_info('开始恢复下载，使用更保守的请求策略')
                 AlbumDownloader(
