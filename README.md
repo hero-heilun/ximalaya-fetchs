@@ -12,6 +12,8 @@
 本项目为喜马拉雅音频平台的批量下载与管理工具，基于 Python 实现，支持专辑音频的批量获取、解密与下载，适合个人备份、学习与研究用途。
 
 ## 2. 应用截图
+![应用列表截图](image/screenshot2.png)
+![应用nas截图](image/screenshot1.png)
 ![登录界面截图](image/screen_login.png)
 ![应用界面截图](image/screenshot.png)
 
